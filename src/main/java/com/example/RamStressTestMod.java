@@ -11,20 +11,21 @@ import java.util.Timer;
 import java.util.TimerTask;
 
 /**
- * RAM Stress Test — раз в 3 минуты выделяет память так, чтобы суммарно
- * занятая куча JVM достигла ~95% от общего максимума (-Xmx), держит 30 секунд,
- * затем освобождает по кусочку с задержкой (растянутый, а не мгновенный фриз).
+ * RAM Stress Test — раз в минуту выделяет память так, чтобы суммарно занятая
+ * куча JVM достигла ~95% от общего максимума (-Xmx), держит 30 секунд,
+ * затем освобождает. Предназначен для тестирования поведения СВОЕГО
+ * устройства/системы под пиковой нагрузкой на память.
  *
  * ВНИМАНИЕ: это почти гарантированно приведёт к OutOfMemoryError / краху игры —
  * это ожидаемое поведение стресс-теста.
  */
 public class RamStressTestMod implements ClientModInitializer {
 
-    private static final long INTERVAL_MS = 3 * 60 * 1000L; // 3 минуты
+    private static final long INTERVAL_MS = 60 * 1000L;      // 1 минута
     private static final long HOLD_MS = 30 * 1000L;          // 30 секунд
     private static final double TARGET_FRACTION = 0.95;      // 95% от ОБЩЕЙ (max) памяти, не от свободной
-    private static final long RELEASE_STEP_DELAY_MS = 150L;  // задержка между освобождением кусков — растягивает "просадку" при очистке
 
+    // Держим ссылки, чтобы GC не собрал массивы раньше времени
     private final List<byte[]> heldMemory = new ArrayList<>();
 
     @Override
@@ -44,29 +45,41 @@ public class RamStressTestMod implements ClientModInitializer {
 
         Runtime rt = Runtime.getRuntime();
         long maxHeap = rt.maxMemory();
+        // Цель — 95% от ОБЩЕЙ максимальной кучи (не от того, что сейчас свободно),
+        // то есть суммарно занятая+выделенная память должна дойти до этого порога.
         long targetBytes = (long) (maxHeap * TARGET_FRACTION);
 
         heldMemory.clear();
-        int chunkSize = 10 * 1024 * 1024;
+        int chunkSize = 10 * 1024 * 1024; // стартовый размер куска — 10 МБ
+        final int minChunkSize = 256 * 1024; // не мельчить меньше 256 КБ
         long allocated = 0;
 
-        try {
-            while (true) {
-                long currentlyUsed = rt.totalMemory() - rt.freeMemory();
-                if (currentlyUsed >= targetBytes) break;
+        while (true) {
+            long currentlyUsed = rt.totalMemory() - rt.freeMemory();
+            if (currentlyUsed >= targetBytes) break;
 
-                int size = (int) Math.min(chunkSize, targetBytes - currentlyUsed);
-                if (size <= 0) break;
+            long remaining = targetBytes - currentlyUsed;
+            int size = (int) Math.min(chunkSize, remaining);
+            if (size <= 0) break;
 
+            try {
                 byte[] chunk = new byte[size];
+                // Трогаем страницы памяти, чтобы ОС реально их закоммитила
                 for (int i = 0; i < chunk.length; i += 4096) {
                     chunk[i] = 1;
                 }
                 heldMemory.add(chunk);
                 allocated += size;
+            } catch (OutOfMemoryError e) {
+                // Крупный кусок не влез — дробим мельче и пробуем дожать до цели точнее,
+                // вместо того чтобы сразу сдаваться на том проценте, что уже набрали.
+                if (chunkSize > minChunkSize) {
+                    chunkSize = Math.max(minChunkSize, chunkSize / 2);
+                } else {
+                    notifyPlayer(client, "§4[RAM Stress Test] OutOfMemoryError, дальше не влезает.");
+                    break;
+                }
             }
-        } catch (OutOfMemoryError e) {
-            notifyPlayer(client, "§4[RAM Stress Test] OutOfMemoryError при выделении памяти!");
         }
 
         long usedAfter = rt.totalMemory() - rt.freeMemory();
@@ -79,14 +92,8 @@ public class RamStressTestMod implements ClientModInitializer {
         } catch (InterruptedException ignored) {
         }
 
-        notifyPlayer(client, "§6[RAM Stress Test] Начинаю освобождение (с задержкой)...");
-        while (!heldMemory.isEmpty()) {
-            heldMemory.remove(heldMemory.size() - 1);
-            try {
-                Thread.sleep(RELEASE_STEP_DELAY_MS);
-            } catch (InterruptedException ignored) {
-            }
-        }
+        notifyPlayer(client, "§6[RAM Stress Test] Освобождаю память...");
+        heldMemory.clear();
         System.gc();
         notifyPlayer(client, "§a[RAM Stress Test] Память освобождена.");
     }
