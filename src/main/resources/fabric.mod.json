@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "ram-stress-test",
+  "version": "1.0.0",
+  "name": "RAM Stress Test",
+  "description": "Every 5 minutes, allocates ~95% of available JVM heap for 30 seconds to stress-test the system. For personal diagnostic use only.",
+  "authors": ["you"],
+  "contact": {},
+  "license": "CC0-1.0",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.example.ramstress.RamStressTestMod"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "fabric-api": "*",
+    "minecraft": "1.20.1",
+    "java": ">=17"
+  }
+}
