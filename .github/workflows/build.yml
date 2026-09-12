@@ -28,8 +28,14 @@ jobs:
       - name: Build
         run: gradle build
 
+      - name: List built jars (debug)
+        run: ls -la build/libs/
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: mod-jar
-          path: build/libs/*.jar
+          path: |
+            build/libs/*.jar
+            !build/libs/*-dev.jar
+            !build/libs/*-sources.jar
