@@ -92,4 +92,5 @@ public class RamStressTestMod implements ClientModInitializer {
     
         heldMemory.clear();
         System.gc();
-    }
+        }
+}
